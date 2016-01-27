@@ -11,7 +11,7 @@
 Name "Tagger-UI suite"
 
 ; The file to write
-OutFile "setup taguiw32.exe"
+OutFile "tagger-ui-setup-win32.exe"
 
 ; The default installation directory
 InstallDir "$PROGRAMFILES\TaggerUI"
