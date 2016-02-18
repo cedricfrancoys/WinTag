@@ -32,6 +32,7 @@
 WCHAR* taggerCommandLinePath = NULL;
 WCHAR* installDirectory = NULL;
 
+
 int getEnv() {
 	HKEY  hKey;
 	RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\TaggerUI",	0, KEY_READ, &hKey);
@@ -219,8 +220,8 @@ void searchFiles(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	// populate files list
 	LPWSTR command, output;
 	// retrieve matching files 
-	command = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(taggerCommandLinePath)+wcslen(L" files \"\"")+wcslen(pattern)+1) );
-	swprintf(command, L"%s files \"%s\"", taggerCommandLinePath, pattern);
+	command = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(taggerCommandLinePath)+wcslen(L" --files query \"\"")+wcslen(pattern)+1) );
+	swprintf(command, L"%s --files query \"%s\"", taggerCommandLinePath, pattern);
 
 	output = DosExec(command);
 	int index = 0;

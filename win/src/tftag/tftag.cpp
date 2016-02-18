@@ -36,7 +36,6 @@ HINSTANCE hInst;
 HWND hPaneTags, hPaneFiles, hPaneLogs;
 WCHAR* taggerCommandLinePath = NULL;
 
-
 HANDLE hSharedMemory;
 LPVOID lpMapAddress = NULL;
 
@@ -56,6 +55,9 @@ int getEnv() {
 //	wsprintf(taggerCommandLinePath, L"%s\\tagger.exe --quiet", data);
 	taggerCommandLinePath = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(data)+wcslen(L"\\tagger.exe")+1) );
 	wsprintf(taggerCommandLinePath, L"%s\\tagger.exe", data);
+
+	LocalFree(data);
+	RegCloseKey(hKey);
 	return 1;
 }
 
@@ -72,6 +74,7 @@ void removeTags(HWND, WPARAM, LPARAM);
 void addTags(HWND, WPARAM, LPARAM);
 void updateTagName(HWND, WPARAM, LPARAM);
 void updateFilesList(HWND, WPARAM, LPARAM);
+void notifyIcon(HWND, WPARAM, LPARAM);
 
 void addLog(LPWSTR str, BOOL isCommand=false);
 
@@ -113,17 +116,48 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	InitCtrlEx.dwICC  = ICC_BAR_CLASSES | ICC_TAB_CLASSES;
 	InitCommonControlsEx(&InitCtrlEx);
 
-	EventListener* eventListener = EventListener::getInstance(HWND_DIALOG);
+	WNDCLASSEX wcex;
+	wcex.cbSize			= sizeof(WNDCLASSEX);
+	wcex.style			= CS_CLASSDC;
+	wcex.lpfnWndProc	= EventListener::wndProc;
+	wcex.cbClsExtra		= 0;
+	wcex.cbWndExtra		= 0;
+	wcex.hInstance		= hInstance;
+	wcex.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDD_ICON));
+	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
+	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
+	wcex.lpszMenuName	= 0;
+	wcex.lpszClassName	= L"myClass";
+	wcex.hIconSm		= LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDD_ICON));
+	RegisterClassEx(&wcex);
 
-	HWND hSplash = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_SPLASH), 0, (DLGPROC) NULL, 0);
+	HWND phWnd = CreateWindowEx(WS_EX_TOOLWINDOW, L"myClass", L"", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
+
+
+
+
+	HWND hSplash = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_SPLASH), phWnd, (DLGPROC) NULL, 0);
     ShowWindow(hSplash, SW_SHOW);
     UpdateWindow(hSplash);
 
 	HWND hWnd;
-    if (!(hWnd = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_DIALOG), 0, (DLGPROC) EventListener::dlgProc, 0))) {
+    if (!(hWnd = CreateDialogParamW(hInstance, MAKEINTRESOURCE(IDD_DIALOG), phWnd, (DLGPROC) EventListener::dlgProc, 0))) {
         MessageBox(NULL, L"App creation failed!", L"Tagger", MB_OK | MB_ICONERROR);
         return 1;
     }
+
+	// create status bar notify icon 
+	DWORD WM_NOTIFYICON = RegisterWindowMessage(L"TaggerNotifyIcon");
+	HICON hIcon = (HICON) LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_ICON));
+    NOTIFYICONDATA tnid;  
+    tnid.cbSize = sizeof(NOTIFYICONDATA); 
+    tnid.hWnd = hWnd; 
+    tnid.uID = 0; 
+    tnid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP; 
+    tnid.uCallbackMessage = WM_NOTIFYICON; 
+    tnid.hIcon = hIcon; 
+    wcscpy(tnid.szTip, L"TaggerUI monitor");
+    Shell_NotifyIcon(NIM_ADD, &tnid); 
 
 	// create tabControl panes 
 	HWND hTabControl = GetDlgItem(hWnd, IDC_TAB);
@@ -136,10 +170,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	initDialog(hWnd, (WPARAM) 0, (LPARAM) 0);
 
 	// bind events we're interested in with appropriate handling functions
-
+	EventListener* eventListener = EventListener::getInstance(HWND_DIALOG);
 	// global events
 	eventListener->bind(hWnd, 0, WM_CLOSE, closeDialog);
 	eventListener->bind(hWnd, 0, WM_FLUPDATE, updateFilesList);
+	eventListener->bind(hWnd, 0, WM_NOTIFYICON, notifyIcon);
+	
 	// handle dialog default IDOK action to terminate app
 	eventListener->bind(hWnd, IDOK, BN_CLICKED, closeDialog);	
 
@@ -149,9 +185,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	eventListener->bind(hPaneTags, ID_ADD, BN_CLICKED, addTags);
 	eventListener->bind(hPaneTags, ID_TAGNAME, EN_CHANGE, updateTagName);
 
-
+	ShowWindow(phWnd, SW_HIDE);
 	ShowWindow(hSplash, SW_HIDE);
-    ShowWindow(hWnd, SW_SHOWNORMAL);
+    ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
 
     // Main message loop:
@@ -237,8 +273,8 @@ void initDialog(HWND hWnd, WPARAM, LPARAM) {
 			LocalFree(command);
 			LocalFree(output);
 			// 2) retrieve tags already applied on the given file
-			command = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(taggerCommandLinePath)+wcslen(L" tags ")+wcslen(L"\"\"")+wcslen(argv[1])+1) );
-			wsprintf(command, L"%s tags \"%s\"", taggerCommandLinePath, argv[1]);		
+			command = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(taggerCommandLinePath)+wcslen(L" query ")+wcslen(L"\"\"")+wcslen(argv[1])+1) );
+			wsprintf(command, L"%s query \"%s\"", taggerCommandLinePath, argv[1]);		
 			output = DosExec(command);
 
 			addLog(command, true);
@@ -442,8 +478,8 @@ void updateFilesList(HWND hWnd, WPARAM, LPARAM) {
    	SendDlgItemMessage(hPaneTags, ID_LIST_TAGS_TMP, LB_RESETCONTENT, 0, 0);
 	
 	// run command to get all tags for new file
-	LPWSTR command = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(taggerCommandLinePath)+wcslen(L" tags ")+wcslen(L"\"\"")+wcslen((LPWSTR)lpMapAddress)+1) );
-	wsprintf(command, L"%s tags \"%s\"", taggerCommandLinePath, (LPWSTR) lpMapAddress);
+	LPWSTR command = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(taggerCommandLinePath)+wcslen(L" query ")+wcslen(L"\"\"")+wcslen((LPWSTR)lpMapAddress)+1) );
+	wsprintf(command, L"%s query \"%s\"", taggerCommandLinePath, (LPWSTR) lpMapAddress);
 	LPWSTR output = DosExec(command);
 	addLog(command, true);
 	addLog(output);
@@ -473,10 +509,25 @@ void updateFilesList(HWND hWnd, WPARAM, LPARAM) {
 	LocalFree(str);
 }
 
+
+void notifyIcon(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
+	if ((UINT) lParam == WM_RBUTTONDOWN) {
+		HMENU hMenu = GetSubMenu( LoadMenu(GetModuleHandle(NULL), MAKEINTRESOURCE(ID_POPUP_MENU)), 0);
+		POINT mPos;
+		GetCursorPos(&mPos);
+		TrackPopupMenu(hMenu, TPM_TOPALIGN | TPM_LEFTALIGN, mPos.x, mPos.y, 0, hWnd, NULL); 
+	}
+}
 void closeDialog(HWND hWnd, WPARAM, LPARAM) {
 	if(taggerCommandLinePath != NULL) LocalFree(taggerCommandLinePath);
 	if(lpMapAddress != NULL) UnmapViewOfFile(lpMapAddress);
 	if(hSharedMemory != NULL) CloseHandle(hSharedMemory);
+
+    NOTIFYICONDATA tnid;  
+    tnid.cbSize = sizeof(NOTIFYICONDATA); 
+    tnid.hWnd = hWnd; 
+    tnid.uID = 0;         
+    Shell_NotifyIcon(NIM_DELETE, &tnid); 
 
 	DestroyWindow(hWnd);
 	PostQuitMessage(0);
