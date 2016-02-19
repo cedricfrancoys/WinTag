@@ -5,7 +5,7 @@
 ;
 ;--------------------------------
 !include "MUI2.nsh"
-
+!include 'LogicLib.nsh'
 
 ; The name of the installer
 Name "Tagger-UI suite"
@@ -29,9 +29,13 @@ RequestExecutionLevel admin
 
 ;--------------------------------
 ;Pages
-
+  
   !insertmacro MUI_PAGE_LICENSE "LICENSE.txt"
+
   !insertmacro MUI_PAGE_COMPONENTS
+
+  !define MUI_DIRECTORYPAGE_VARIABLE $INSTDIR
+  !insertmacro MUI_PAGE_DIRECTORY
 
   Var TAGGERDIR
   !define MUI_PAGE_HEADER_TEXT "Specify path of dependencies"
@@ -42,12 +46,11 @@ RequestExecutionLevel admin
   !define MUI_PAGE_CUSTOMFUNCTION_PRE TaggerDirectoryEnter
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE TaggerDirectoryLeave
   !insertmacro MUI_PAGE_DIRECTORY
-
-  !define MUI_DIRECTORYPAGE_VARIABLE $INSTDIR
-  !insertmacro MUI_PAGE_DIRECTORY
+  
   !insertmacro MUI_PAGE_INSTFILES
 
   !insertmacro MUI_UNPAGE_CONFIRM
+
   !insertmacro MUI_UNPAGE_INSTFILES
 
 ;--------------------------------
@@ -66,7 +69,7 @@ Section "Tagger UI (required)" sectionTagger
   ; Set output path to the installation directory.
   SetOutPath $INSTDIR
 
-  ; Put files there
+  ; attached binaries
   File "tfsearch.exe"
   File "tftag.exe"
 
@@ -87,6 +90,19 @@ Section "Tagger UI (required)" sectionTagger
 
 SectionEnd
 
+Section "tagger command-line tool" sectionCLI
+  ; attached binaries
+  File "tagger.exe"
+
+SectionEnd
+
+Section "FS monitor" sectionFSMonitor
+  ; attached binaries
+  File "tfmon.exe"
+  
+  WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "TaggerUI FS Monitor" '"$INSTDIR\tfmon.exe"'
+SectionEnd
+
 ; Optional section (can be disabled by the user)
 Section "Start Menu Shortcuts" sectionStartMenu
 
@@ -103,6 +119,7 @@ SectionEnd
 Section "Uninstall"
 
   ; Remove registry keys
+  DeleteRegKey HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Run\TaggerUI FS Monitor"
   DeleteRegKey HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TaggerUI"
   DeleteRegKey HKLM "SOFTWARE\TaggerUI"
   DeleteRegKey HKCR "*\shell\TaggerUI"
@@ -111,6 +128,7 @@ Section "Uninstall"
   Delete "$INSTDIR\tagger.exe"
   Delete "$INSTDIR\tfsearch.exe"
   Delete "$INSTDIR\tftag.exe"
+  Delete "$INSTDIR\tfmon.exe"  
   Delete "$INSTDIR\uninstall.exe"
 
   ; Remove shortcuts, if any
@@ -128,6 +146,12 @@ SectionEnd
 Function TaggerDirectoryEnter
 	; set default value fot Tagger directory to previously set, if any
 	ReadRegStr $TAGGERDIR HKLM "SOFTWARE\TaggerUI" "Tagger_Dir"
+
+    ${If} ${SectionIsSelected} ${sectionCLI}     
+        StrCpy $TAGGERDIR $INSTDIR
+        Abort ; skip this page (user asked to install embedded tagger.exe)
+    ${EndIf}
+
 FunctionEnd
 
 Function TaggerDirectoryLeave
@@ -142,6 +166,8 @@ FunctionEnd
 
 LangString DESC_SectionTagger ${LANG_ENGLISH} "Tagger UI main component consists of two executables: tftag.exe (for tagging files) and tfsearch.exe (for searching files).$\n$\nIn addition it updates files contextmenu."
 LangString DESC_SectionStartMenu ${LANG_ENGLISH} "Add custom shortcuts to the start menu."
+LangString DESC_sectionCLI ${LANG_ENGLISH} "tagger.exe is required (check this if it is not already on your system)."
+LangString DESC_sectionFSMonitor ${LANG_ENGLISH} "File system changes notifier : required in order to maintain tag DB consistency in case of move, rename or delete."
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SectionTagger} $(DESC_SectionTagger)
