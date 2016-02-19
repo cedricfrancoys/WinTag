@@ -44,35 +44,37 @@ Windows versions memo:
     Windows 2000                    5.0
 */
 LPWINDOWSINFO WinEnv_GetWindowsInfo() {
-	LPWINDOWSINFO lpWinInf = (LPWINDOWSINFO) LocalAlloc(LPTR, sizeof(WINDOWSINFO));
-	LPWSTR szBuff;
+	static WINDOWSINFO winInf = {0};
 
-	if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentVersion")) {
-		wcscpy(lpWinInf->szVersion, szBuff);
-		LocalFree(szBuff);
-	}
+	if(!winInf.szVersion[0]) {
+		LPWSTR szBuff;
 
-	if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ProductName")) {
-		wcscpy(lpWinInf->szName, szBuff);
-		LocalFree(szBuff);
-	}
+		if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentVersion")) {
+			wcscpy(winInf.szVersion, szBuff);
+			LocalFree(szBuff);
+		}
+
+		if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ProductName")) {
+			wcscpy(winInf.szName, szBuff);
+			LocalFree(szBuff);
+		}
     
-	if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentBuildNumber")) {
-		wcscpy(lpWinInf->szBuild, szBuff);
-		LocalFree(szBuff);
-	}	
+		if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentBuildNumber")) {
+			wcscpy(winInf.szBuild, szBuff);
+			LocalFree(szBuff);
+		}	
 	
-	if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"SystemRoot")) {
-		wcscpy(lpWinInf->szDirectory, szBuff);
-		LocalFree(szBuff);    
-	}
+		if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"SystemRoot")) {
+			wcscpy(winInf.szDirectory, szBuff);
+			LocalFree(szBuff);    
+		}
 
-	if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CSDVersion")) {
-		wcscpy(lpWinInf->szServicePack, szBuff);
-		LocalFree(szBuff);
+		if(szBuff = (LPWSTR) Registry_Read(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CSDVersion")) {
+			wcscpy(winInf.szServicePack, szBuff);
+			LocalFree(szBuff);
+		}
 	}
-
-	return lpWinInf;
+	return &winInf;
 }
 
 
@@ -125,8 +127,8 @@ LPWSTR WinEnv_GetFolderPath(UINT nFolderID) {
 	if(nFolderID == CSIDL_MYTEMP) {
 		WCHAR buff[1024];
 		LPWSTR result = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR)*1024);
-		GetTempPathW(1024, buff);
-		GetLongPathNameW(buff, result, 1024);
+		GetTempPath(1024, buff);
+		GetLongPathName(buff, result, 1024);
 		return result;
 	}
 	if(nFolderID == CSIDL_TEMP) {
@@ -163,23 +165,22 @@ typedef struct {
 } CURRENTUSER_INFO, CURRENTUSERINFO;
 */
 LPCURRENTUSERINFO WinEnv_GetCurrentUserInfo() {
-	static LPCURRENTUSERINFO lpCurrentUserInfo = NULL;
+	static CURRENTUSERINFO currentUserInfo = {0};
 
-	if(!lpCurrentUserInfo) {
-		lpCurrentUserInfo = (LPCURRENTUSERINFO) LocalAlloc(LPTR, sizeof(CURRENTUSERINFO));
+	if(!currentUserInfo.szName[0]) {
 		// retrieve user name
 		DWORD nSize = 1024;
 		LPWSTR szBuff = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR)*nSize);
 		if(GetUserName(szBuff, &nSize)) {
-			wcscpy(lpCurrentUserInfo->szName, szBuff);
+			wcscpy(currentUserInfo.szName, szBuff);
 		}
 		LocalFree(szBuff);
 
 		// retrieve home directory
-		szBuff = (LPWSTR) Registry_Read(HKEY_CURRENT_USER, L"Environment", L"HOME");
-		if(szBuff) {
-			wcscpy(lpCurrentUserInfo->szHomeDirectory, szBuff);
-			LocalFree(szBuff);
+		LPWSTR szReg = (LPWSTR) Registry_Read(HKEY_CURRENT_USER, L"Environment", L"HOME");
+		if(szReg) {
+			wcscpy(currentUserInfo.szHomeDirectory, szReg);
+			LocalFree(szReg);
 		}
 
 		// retrieve user SID string (ex. S-1-5-xx-xxxxxxxxx-xxxxxxxxxx-xxxxxxxxxx-xxxx)
@@ -192,7 +193,7 @@ LPCURRENTUSERINFO WinEnv_GetCurrentUserInfo() {
 				if(GetTokenInformation(hToken, TOKEN_INFORMATION_CLASS::TokenUser, ptu, dwSize, &dwSize)) {
 					LPWSTR result = NULL;
 					ConvertSidToStringSidW(ptu->User.Sid, &result);
-					wcscpy((LPWSTR) lpCurrentUserInfo->szSid, result);
+					wcscpy((LPWSTR) currentUserInfo.szSid, result);
 					LocalFree(result);
 				}
 				LocalFree((HLOCAL) ptu);
@@ -200,7 +201,7 @@ LPCURRENTUSERINFO WinEnv_GetCurrentUserInfo() {
 			CloseHandle(hToken);
 		}
 	}
-	return lpCurrentUserInfo;
+	return &currentUserInfo;
 }
 
 
@@ -266,10 +267,8 @@ LPDRIVEINFO WinEnv_GetDriveInfo(LPWSTR szDrive) {
 				LPCURRENTUSERINFO lpCurrentUserInfo = WinEnv_GetCurrentUserInfo();
 				wcscat(lpdi->szRecycleBinPath, lpCurrentUserInfo->szSid);
 				wcscat(lpdi->szRecycleBinPath, L"\\");
-				LocalFree(lpCurrentUserInfo);
 			}            
 		}
-		LocalFree(lpWinInf);
 	}
 	return lpdi;
 }
@@ -346,7 +345,6 @@ LPWSTR WinEnv_GetRecycleBinPath(LPWSTR szDrive) {
 			}
         }            
     }
-	LocalFree(lpWinInf);
     return result;
 }
 */
