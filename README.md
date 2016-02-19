@@ -6,7 +6,7 @@ In addition, it comes along with a full featured NSI installer that sets the env
 * Adds start menu shortcut to tfsearch.exe utility
 * Automatically runs (if user chooses so) the tfmon.exe atr stratup
 
-## tfsearch.exe  ## 
+## tfsearch.exe  ##
 
 Allows to search among tagged files. 
  
@@ -23,7 +23,7 @@ Allows to apply or remove tag(s) to any file from the file system.
 ![tftag - menu](https://cloud.githubusercontent.com/assets/2885156/13174693/c666a0c8-d705-11e5-8fb5-59cbe6f07445.jpg)
 
 
-## tfmon.exe ## 
+## tfmon.exe ##
 
 This optional tool is a filesystem monitoring daemon allowing to maintain tagger database consistency when a tagged file is moved, renamed or deleted. 
  
