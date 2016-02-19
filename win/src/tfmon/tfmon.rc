@@ -14,18 +14,20 @@ BEGIN
 END
 
 
-IDD_DIALOG_ABOUT DIALOGEX	0, 0, 319, 219
+IDD_DIALOG_ABOUT DIALOGEX	0, 0, 269, 109
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
 CAPTION "TaggerUI FileSystem monitor - About"
 FONT 8, "MS Sans Serif"
 BEGIN
-	PUSHBUTTON		"OK",		IDOK,		270, 201,  45,  14
-	CONTROL "", -1, "static", WS_CHILD | WS_VISIBLE, 5, 3, 181, 51
-	ICON IDD_ICON, -1, 20, 63, 18, 15
-	CTEXT "Tagger UI monitor", -1,  66, 53, 210, 17
-	CTEXT "Daemon for monitoring filesystem changes.", -1,  66, 65, 210, 17
-	CTEXT "Tagger UI suite - (C) Copyright 2016 Cedric Francoys, 2016, Yegen", -1, 66, 77, 210, 17
-	CTEXT "Some Right Reserved, GNU GPL 3 license", -1,  66, 89, 210, 17	
+	PUSHBUTTON		"OK",		IDOK,		220, 89,  45,  14
+	GROUPBOX        "About",		
+					IDC_STATIC,	 5,  3, 259, 83, BS_GROUPBOX
+
+	ICON IDD_ICON, -1, 10, 18, 18, 15
+	CTEXT "Tagger UI monitor", -1,  36, 23, 210, 17
+	CTEXT "Daemon for monitoring filesystem changes.", -1,  36, 35, 210, 17
+	CTEXT "Tagger UI suite - (C) Copyright 2016 Cedric Francoys, 2016, Yegen", -1, 36, 47, 210, 17
+	CTEXT "Some Right Reserved, GNU GPL 3 license", -1,  36, 59, 210, 17	
 END
 
 

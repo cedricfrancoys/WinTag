@@ -1,42 +1,15 @@
 /* FSChangeNotifier.cpp - interface for monitoring File System changes using ReadDirectoryChangesW
 				  
-	This code is based on the class CFileSysMon, defined in FileSysMon.cpp originally written by H. Seldon (hseldon@veridium.net), December 2010 <http://veridium.net>
- 	Modified by Cedric Francoys, February 2016
-		- replace tstring and TCHAR types with WCHAR, LPWSTR and LPCWSTR
-		- replace bool type with BOOL
-		- change call to CreateIoCompletionPort to run in single-threaded mode
-		- change code to avoid need of critical sections (XCritSec.h)
-        - embed CPrivilegeUtil::Add to FSChangeNotifier as AddPrivilege private method
-		- use of the 'this' member when possible, to ease code reading
-		- remove calls to assert() to avoid possible unnecessary program termination
-		- change RemoveAllPaths() method to take advantage of RemovePath()
-		- remove Unint() method to prevent double de-alloc during process termination
-		- move constant definition to FileSysMon.h
-		- group hIOCP operations into Init() and destructor methods
-
     This file is part of the tagger-ui suite <http://www.github.com/cedricfrancoys/tagger-ui>
     Copyright (C) Cedric Francoys, 2016, Yegen
     Some Right Reserved, GNU GPL 3 license <http://www.gnu.org/licenses/>
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	
+	Part of this code is based on the class CFileSysMon, defined in FileSysMon.cpp originally written by H. Seldon (hseldon@veridium.net), December 2010 <http://veridium.net>
 */
 
 
-
 #include <windows.h>
-
 #include <stdlib.h>
-
 #include "FSChangeNotifier.h"
 
 DWORD WM_FSNOTIFY_ADDED = RegisterWindowMessage(L"FSChangeNotifierAdd");
@@ -82,7 +55,7 @@ BOOL FSChangeNotifier::Init() {
 	// adjust privileges for current process
 	if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken)) {
 		TOKEN_PRIVILEGES tp = { 1 }; 
-
+// do we need this ?
 		if (LookupPrivilegeValue(NULL, SE_BACKUP_NAME,  &tp.Privileges[0].Luid)) {
 			tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 			AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
@@ -92,6 +65,7 @@ BOOL FSChangeNotifier::Init() {
 				return FALSE;
 			}
 		}
+// do we need this ?
 		if (LookupPrivilegeValue(NULL, SE_RESTORE_NAME,  &tp.Privileges[0].Luid)) {
 			tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 			AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
@@ -101,7 +75,7 @@ BOOL FSChangeNotifier::Init() {
 				return FALSE;
 			}
 		}
-		// we need this one enabled  by default on win nt
+		// we need this one enabled  (enabled by default for all user since win NT)
 		if (LookupPrivilegeValue(NULL, SE_CHANGE_NOTIFY_NAME,  &tp.Privileges[0].Luid)) {
 			tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 			AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);

@@ -175,7 +175,8 @@ BOOL StartMonitoring() {
 	wsprintf(outputBuff, L"tagger.exe command line: %s", Settings.taggerCommandLinePath);
 	appendLog(ID_LOG_APP, outputBuff);
 
-	appendLog(ID_LOG_APP, L"Retrieved drives and recycle bins:");
+	appendLog(ID_LOG_APP, L"Retrieved drives and recycle bins:", true);
+// todo : check settings to know which kind of drives user wants to be watched
 	LPWSTR* lpFixedDrives = WinEnv_GetDrives(DRIVE_FIXED);
 	LPWSTR* lpRemoteDrives = WinEnv_GetDrives(DRIVE_REMOTE);
 	Settings.lpDrives = (LPWSTR*) LocalAlloc(LPTR, sizeof(LPWSTR)*26);
@@ -188,13 +189,14 @@ BOOL StartMonitoring() {
 		Settings.lpDrives[nbDrives++] = lpRemoteDrives[i];
 		appendLog(ID_LOG_APP, lpRemoteDrives[i]);
 	}
+	// retrieve path of related recycle bins
 	LPDRIVEINFO *lpDriveInfos = (LPDRIVEINFO *) LocalAlloc(LPTR, sizeof(LPDRIVEINFO)*nbDrives);
 	for(UINT i = 0; i < nbDrives; ++i) {
 		lpDriveInfos[i] = WinEnv_GetDriveInfo(Settings.lpDrives[i]);
 		appendLog(ID_LOG_APP, lpDriveInfos[i]->szRecycleBinPath);
 	}
 
-	appendLog(ID_LOG_APP, L"Starting monitoring...");
+
 
 	FSChangeNotifier* lpNotifier = FSChangeNotifier::GetInstance();
 
@@ -211,17 +213,28 @@ BOOL StartMonitoring() {
 		}
 	}
 
-	// exclude windows\Temp and <user profile>\Local Settings\Temp
+	appendLog(ID_LOG_APP, L"Added exclusions:", true);
+	// exclude windows\Temp 
 	lpNotifier->AddExclusion(WinEnv_GetFolderPath(CSIDL_TEMP));
+	// exclude <user profile>\Local Settings\Temp
 	lpNotifier->AddExclusion(WinEnv_GetFolderPath(CSIDL_MYTEMP));
+	// exclude <user profile>\Local Settings\Applicaiton Data
+	lpNotifier->AddExclusion(WinEnv_GetFolderPath(CSIDL_LOCAL_APPDATA));
 	// exclude .tagger directory (tagger database)
 	LPCURRENTUSERINFO lpInfo = WinEnv_GetCurrentUserInfo();
 	wsprintf(outputBuff, L"%s\\.tagger", lpInfo->szHomeDirectory);
-	lpNotifier->AddExclusion(outputBuff);
 
+	lpNotifier->AddExclusion(outputBuff);
+	appendLog(ID_LOG_APP, WinEnv_GetFolderPath(CSIDL_TEMP));
+	appendLog(ID_LOG_APP, WinEnv_GetFolderPath(CSIDL_MYTEMP));
+	appendLog(ID_LOG_APP, WinEnv_GetFolderPath(CSIDL_LOCAL_APPDATA));
+	appendLog(ID_LOG_APP, outputBuff);
+
+	
 	// bind main window with notifier
 	lpNotifier->bind(hWnd);
 
+	appendLog(ID_LOG_APP, L"Starting monitoring...", true);
 	// start watching thread
 	lpNotifier->Start();
 
@@ -333,18 +346,6 @@ BOOL initDialogAbout() {
 	return TRUE;
 }
 
-void notifyIcon(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
-	HMENU hMenu = GetSubMenu( LoadMenu(GetModuleHandle(NULL), MAKEINTRESOURCE(ID_POPUP_MENU)), 0);
-	if ((UINT) lParam == WM_LBUTTONDOWN) {
-		SendMessage(hWnd, WM_COMMAND, IDD_DIALOG_ACTIVITY, 0);
-	}
-	else if ((UINT) lParam == WM_RBUTTONDOWN) {
-		POINT mPos;
-		GetCursorPos(&mPos);
-		TrackPopupMenuEx(hMenu, TPM_TOPALIGN | TPM_LEFTALIGN, mPos.x, mPos.y, hWnd, NULL); 
-	}
-}
-
 void fileMove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	static WCHAR buff[4192];
 	LPWSTR output;
@@ -439,8 +440,21 @@ void fileRestore(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	LocalFree(output);
 }
 
+void notifyIcon(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
+	HMENU hMenu = GetSubMenu( LoadMenu(GetModuleHandle(NULL), MAKEINTRESOURCE(ID_POPUP_MENU)), 0);
+	if ((UINT) lParam == WM_LBUTTONDOWN) {
+		SendMessage(hWnd, WM_COMMAND, IDD_DIALOG_ACTIVITY, 0);
+	}
+	else if ((UINT) lParam == WM_RBUTTONDOWN) {
+		POINT mPos;
+		GetCursorPos(&mPos);
+		TrackPopupMenuEx(hMenu, TPM_TOPALIGN | TPM_LEFTALIGN, mPos.x, mPos.y, hWnd, NULL); 
+	}
+}
+
 void menuActivityLog(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
-	ShowWindow(hWndActivity, SW_SHOW);
+	ShowWindow(hWndActivity, SW_SHOWNORMAL);
+	BringWindowToTop(hWndActivity);
 }
 
 void menuSettings(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
@@ -476,6 +490,7 @@ void appendLog(UINT type, LPCWSTR str, BOOL isCommand) {
 	switch(type) {
 	case ID_LOG_FS:
 	case ID_LOG_APP:
+		if(isCommand) DlgCtrl_SendMessage(hWndActivity, type, LB_ADDSTRING, 0, (LPARAM) L"");
 		DlgCtrl_SendMessage(hWndActivity, type, LB_ADDSTRING, 0, (LPARAM) str);
 		break;
 	case ID_LOG_TAGGER:

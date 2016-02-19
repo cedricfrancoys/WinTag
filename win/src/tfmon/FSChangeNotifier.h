@@ -1,24 +1,12 @@
-/* FileSysMon.h - interface for monitoring File System changes using ReadDirectoryChangesW
-	
-	Code originally written by H. Seldon (hseldon@veridium.net), December 2010 <http://veridium.net>
- 	Modified by Cedric Francoys, February 2016
+/* FSChangeNotifier.h - interface for monitoring File System changes using ReadDirectoryChangesW				  	
 
     This file is part of the tagger-ui suite <http://www.github.com/cedricfrancoys/tagger-ui>
     Copyright (C) Cedric Francoys, 2016, Yegen
     Some Right Reserved, GNU GPL 3 license <http://www.gnu.org/licenses/>
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	Part of this code is based on the class CFileSysMon, defined in FileSysMon.cpp originally written by H. Seldon (hseldon@veridium.net), December 2010 <http://veridium.net>
 */
+
 
 #pragma once
 #include <Windows.h>
