@@ -7,6 +7,9 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,6 +130,8 @@ int WINAPI WinMain(HINSTANCE hInstance,	HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
 void initDialog(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+	OleInitialize(0);
+
 	// set icon
 	HICON hIcon;
 	if((hIcon = (HICON) LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_ICON)))) {
@@ -234,8 +239,8 @@ void searchFiles(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 		// separate filename and path
 		WCHAR* path = wcsdup(line);
 		WCHAR* backslash = wcsrchr(line, (int)'\\');
-		WCHAR* filename = backslash + 1;
-		*backslash = '\0';
+		WCHAR* filename = backslash+1;
+		*backslash = L'\0';
 		LVITEM lvItem;
 		memset(&lvItem,0,sizeof(LVITEM));
 		lvItem.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;   
@@ -323,6 +328,7 @@ void updateTagName(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
 
 void closeDialog(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+	OleUninitialize();
 	if(taggerCommandLinePath != NULL) LocalFree(taggerCommandLinePath);
 	if(installDirectory != NULL) LocalFree(installDirectory);
 	DestroyWindow(hWnd);
@@ -363,27 +369,8 @@ void showSaveAs(HWND hWnd, WPARAM, LPARAM) {
 
 /* Context menu methods
 */
-
-void showContext(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-	// extract coordinates
-	UINT xPos = LOWORD(lParam); 
-	UINT yPos = HIWORD(lParam);
-
-	// check cursor position relatively to ID_LIST_FILES control
-	RECT rect;
-	GetWindowRect(GetDlgItem(hWnd, ID_LIST_FILES), &rect);
-	int res = SendDlgItemMessage(hWnd, ID_LIST_FILES, LB_ITEMFROMPOINT, 0, (LPARAM) MAKELPARAM(xPos-rect.left, yPos-rect.top));
-	// if we're not outside of the client-area
-	if(!HIWORD(res)) {
-		// select item at cursor position
-		SendDlgItemMessage(hWnd, ID_LIST_FILES, LB_SETCURSEL, (WPARAM) LOWORD(res), (LPARAM) 0);  
-		// generate popup menu from resource
-		HMENU hMenu = GetSubMenu( LoadMenu(GetModuleHandle(NULL), MAKEINTRESOURCE(ID_POPUP_MENU)), 0);
-		TrackPopupMenu(hMenu, TPM_TOPALIGN | TPM_LEFTALIGN, xPos, yPos, 0, hWnd, NULL); 
-	}
-}
-
 LPWSTR getSelectedFile() {
+	static WCHAR result[4096];
 	HWND hWnd = GetActiveWindow();
 //	int index = SendDlgItemMessage(hWnd, ID_LIST_FILES, LB_GETCURSEL, (WPARAM) 0, (LPARAM) 0);
 //	int len = SendDlgItemMessage(hWnd, ID_LIST_FILES, LB_GETTEXTLEN, (WPARAM) index, (LPARAM) 0);
@@ -397,8 +384,135 @@ LPWSTR getSelectedFile() {
 	lvItem.iItem = index;
 	lvItem.iSubItem = 0;
 	ListView_GetItem(GetDlgItem( hWnd, ID_LIST_FILES ), &lvItem);
+	// wsprintf(result, L"%s\\%s", lvItem.lParam);
 	return (LPWSTR) lvItem.lParam;
 }
+
+HRESULT SHPathToPidl(LPCSTR szPath, LPITEMIDLIST* ppidl)
+{
+	LPSHELLFOLDER pShellFolder = NULL;
+	OLECHAR wszPath[MAX_PATH] = {0};
+	ULONG nCharsParsed = 0;
+	// Get an IShellFolder interface pointer
+	HRESULT hr = SHGetDesktopFolder(&pShellFolder);
+	if(FAILED(hr))
+	return hr;
+	// Convert the path name to Unicode
+	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, szPath, -1, wszPath, MAX_PATH);
+	// Call ParseDisplayName() to do the job
+	hr = pShellFolder->ParseDisplayName(NULL, NULL, wszPath, &nCharsParsed, ppidl, NULL);
+	// Clean up
+	pShellFolder->Release();
+	return hr;
+}
+
+void showContext(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+	// extract coordinates
+	UINT xPos = LOWORD(lParam); 
+	UINT yPos = HIWORD(lParam);
+
+	// check cursor position relatively to ID_LIST_FILES control
+	RECT rect;
+	GetWindowRect(GetDlgItem(hWnd, ID_LIST_FILES), &rect);
+	int res = SendDlgItemMessage(hWnd, ID_LIST_FILES, LB_ITEMFROMPOINT, 0, (LPARAM) MAKELPARAM(xPos-rect.left, yPos-rect.top));
+	// if we're not outside of the client-area
+	if(!HIWORD(res)) {
+
+		// select item at cursor position
+		SendDlgItemMessage(hWnd, ID_LIST_FILES, LB_SETCURSEL, (WPARAM) LOWORD(res), (LPARAM) 0);  
+		
+		// generate popup menu from resource
+/*		
+		HMENU hMenu = GetSubMenu( LoadMenu(GetModuleHandle(NULL), MAKEINTRESOURCE(ID_POPUP_MENU)), 0);
+		TrackPopupMenu(hMenu, TPM_TOPALIGN | TPM_LEFTALIGN, xPos, yPos, 0, hWnd, NULL); 
+*/
+
+		HRESULT hResult;
+		LPITEMIDLIST parentPidl = NULL;
+		ULONG nCharsParsed = 0;
+		LPSHELLFOLDER DesktopFolder = NULL;
+		LPWSTR filePath;
+		LPWSTR fileName;
+
+		filePath = wcsdup(getSelectedFile());
+		fileName = wcsdup(filePath);
+		WCHAR* backslash = wcsrchr(filePath, (int)'\\');
+		fileName = &backslash[1];
+		backslash[0] = 0UL;
+
+		//MessageBox(NULL, filePath, L"path", MB_OK);
+		//MessageBox(NULL, fileName, L"name", MB_OK);
+		hResult = SHGetDesktopFolder(&DesktopFolder);
+		if (!DesktopFolder) {
+			MessageBox(NULL, L"Failed to get Desktop folder.", L"error", MB_OK);
+			return;
+		}
+		if (hResult != S_OK) {
+			MessageBox(NULL, L"Failed to get Desktop folder.", L"error", MB_OK);
+			return;
+		}
+
+		// Get a pidl for the folder the file is located in.
+		hResult = DesktopFolder->ParseDisplayName(NULL, 0, filePath, &nCharsParsed, &parentPidl, 0);		
+
+
+		if (hResult) {
+			MessageBox(NULL, L"Invalid filename.", filePath, MB_OK);
+			return;
+		}
+		// Get an IShellFolder for the folder the file is located in.
+		LPSHELLFOLDER parentFolder;
+		hResult = DesktopFolder->BindToObject(parentPidl, 0, IID_IShellFolder, (void**)&parentFolder);
+		if (!parentFolder) {
+			MessageBox(NULL, L"Unable to bind parent folder.", filePath, MB_OK);
+			return;
+		}
+		// Get a pidl for the file itself.
+		LPITEMIDLIST Pidl;
+		parentFolder->ParseDisplayName(hWnd, 0, fileName, &nCharsParsed, &Pidl, 0);
+
+		// Get the IContextMenu for the file.
+		LPCONTEXTMENU CM;
+		parentFolder->GetUIObjectOf(hWnd, 1, (LPCITEMIDLIST*)&Pidl, IID_IContextMenu, 0, (void**)&CM);
+
+//		LPITEMIDLIST list[1] = {Pidl};
+//		CDefFolderMenu_Create2(NULL, NULL, 1, (PCUITEMID_CHILD_ARRAY) &list, NULL, NULL, 0, NULL, &CM);
+
+		if (!CM) {
+			MessageBox(NULL, L"Unable to get context menu interface.", L"error", MB_OK);
+			return;
+		}
+
+		// Set up a CMINVOKECOMMANDINFO structure.
+		CMINVOKECOMMANDINFO CI;
+		ZeroMemory(&CI, sizeof(CI));
+		CI.cbSize = sizeof(CMINVOKECOMMANDINFO);
+		CI.hwnd = hWnd;
+
+		HMENU hMenu = CreatePopupMenu();
+		DWORD Flags = CMF_EXPLORE;
+		CM->QueryContextMenu(hMenu, 0, 1, 0x7FFF, Flags);
+
+
+		// Show the menu.
+		int Cmd = TrackPopupMenu(hMenu, 
+			TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RIGHTBUTTON | TPM_RETURNCMD,
+			xPos, yPos, 0, hWnd, 0);
+		// Handle the command.
+		CI.lpVerb = (LPCSTR) MAKEINTRESOURCE(Cmd - 1);
+		CI.lpParameters = "";
+		CI.lpDirectory = "";
+		CI.nShow = SW_SHOWNORMAL;
+		CM->InvokeCommand(&CI);
+
+		// Release the memory allocated for the menu.
+		DestroyMenu(hMenu);
+
+		DesktopFolder->Release();
+	}
+}
+
+
 
 void menuOpenFile(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	// retrieve selected file
