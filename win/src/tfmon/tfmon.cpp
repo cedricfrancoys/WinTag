@@ -53,8 +53,10 @@ DWORD WM_NOTIFYICON = RegisterWindowMessage(L"TaggerNotifyIcon");
 
 // custom structure for holding settings data used during initialization
 struct {
-	LPWSTR	taggerCommandLinePath;
-	LPWSTR*	lpDrives;
+	LPWSTR			taggerCommandLinePath;
+	LPWSTR			taggerVersion;
+	LPDRIVEINFO*	lpDrivesInfos;
+	UINT			nDrives;
 } Settings;
 
 // forward declarations of functions included in this module
@@ -75,6 +77,7 @@ void notifyIcon(HWND, WPARAM, LPARAM);
 void fileMove(HWND, WPARAM, LPARAM);
 void fileRemove(HWND, WPARAM, LPARAM);
 void fileRestore(HWND, WPARAM, LPARAM);
+void watcherStopped(HWND, WPARAM, LPARAM);
 // dialogs callbacks
 void closeDialog(HWND, WPARAM, LPARAM);
 // context menu handlers
@@ -124,6 +127,8 @@ int WINAPI WinMain(HINSTANCE hInstance,	HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	wndEventListener->bind(hWnd, 0, WM_FSNOTIFY_MOVED, fileMove);
 	wndEventListener->bind(hWnd, 0, WM_FSNOTIFY_REMOVED, fileRemove);
 	wndEventListener->bind(hWnd, 0, WM_FSNOTIFY_RESTORED, fileRestore);
+	wndEventListener->bind(hWnd, 0, WM_FSNOTIFY_STOP, watcherStopped);
+	
 	
 	// menu events
 	wndEventListener->bind(hWnd, IDD_DIALOG_ACTIVITY, 0, menuActivityLog);
@@ -159,15 +164,19 @@ int WINAPI WinMain(HINSTANCE hInstance,	HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		DispatchMessage(&msg);
     }
 
-    return (int) msg.wParam;
+    // return (int) msg.wParam;
+	return 0;
 }
   
 BOOL StartMonitoring() {
+
+// todo : we should do the extraction of required data somewhere else and store them into the Settings structure
+// what about InitDialogActivity ?
+
 	// add some logs
 	WCHAR outputBuff[1024];
 
-	appendLog(ID_LOG_APP, L"Applicaiton initialization...");
-	
+	appendLog(ID_LOG_APP, L"Detected environment:", true);	
 	LPWINDOWSINFO lpWinInfo = WinEnv_GetWindowsInfo();
 	wsprintf(outputBuff, L"Windows version: %s (%s)", lpWinInfo->szVersion, lpWinInfo->szName);
 	appendLog(ID_LOG_APP, outputBuff);
@@ -175,45 +184,89 @@ BOOL StartMonitoring() {
 	wsprintf(outputBuff, L"tagger.exe command line: %s", Settings.taggerCommandLinePath);
 	appendLog(ID_LOG_APP, outputBuff);
 
+	wsprintf(outputBuff, L"%s --version", Settings.taggerCommandLinePath);
+	Settings.taggerVersion = wcstok(DosExec(outputBuff), L"\r\n");
+
+	wsprintf(outputBuff, L"tagger.exe version: %s", Settings.taggerVersion);
+	appendLog(ID_LOG_APP, outputBuff);
+
 	appendLog(ID_LOG_APP, L"Retrieved drives and recycle bins:", true);
 // todo : check settings to know which kind of drives user wants to be watched
+
+
+	// retrieve environment data
+	Settings.lpDrivesInfos = (LPDRIVEINFO*) LocalAlloc(LPTR, sizeof(LPDRIVEINFO)*26);
+	Settings.nDrives = 0;
+
+	LPDRIVEINFO lpdi;
+
+	// load local fixed drives
+// todo : improve this (reduce redundant code)
 	LPWSTR* lpFixedDrives = WinEnv_GetDrives(DRIVE_FIXED);
-	LPWSTR* lpRemoteDrives = WinEnv_GetDrives(DRIVE_REMOTE);
-	Settings.lpDrives = (LPWSTR*) LocalAlloc(LPTR, sizeof(LPWSTR)*26);
-	UINT nbDrives = 0;
 	for(UINT i = 0; lpFixedDrives[i]; ++i) {
-		Settings.lpDrives[nbDrives++] = lpFixedDrives[i];
-		appendLog(ID_LOG_APP, lpFixedDrives[i]);
+		if(lpdi = WinEnv_GetDriveInfo(lpFixedDrives[i])) {
+			Settings.lpDrivesInfos[Settings.nDrives++] = lpdi;
+			wsprintf(outputBuff, L"%s (%s) - %s", lpdi->szDrive, lpdi->szFileSystem, lpdi->szRecycleBinPath);
+			appendLog(ID_LOG_APP, outputBuff);
+		}
+		else {
+			wsprintf(outputBuff, L"Unable to get info for drive %s", lpFixedDrives[i]);
+			appendLog(ID_LOG_APP, outputBuff);
+		}
 	}
+
+	// load remote drives 
+	LPWSTR* lpRemovableDrives = WinEnv_GetDrives(DRIVE_REMOVABLE);
+	for(UINT i = 0; lpRemovableDrives[i]; ++i) {
+		if(lpdi = WinEnv_GetDriveInfo(lpRemovableDrives[i])) {
+			Settings.lpDrivesInfos[Settings.nDrives++] = lpdi;
+			wsprintf(outputBuff, L"%s (%s) - %s", lpdi->szDrive, lpdi->szFileSystem, lpdi->szRecycleBinPath);
+			appendLog(ID_LOG_APP, outputBuff);
+		}
+		else {
+			wsprintf(outputBuff, L"Unable to get info for drive %s", lpRemovableDrives[i]);
+			appendLog(ID_LOG_APP, outputBuff);
+		}
+	}
+
+	// load remote drives 
+	LPWSTR* lpRemoteDrives = WinEnv_GetDrives(DRIVE_REMOTE);
 	for(UINT i = 0; lpRemoteDrives[i]; ++i) {
-		Settings.lpDrives[nbDrives++] = lpRemoteDrives[i];
-		appendLog(ID_LOG_APP, lpRemoteDrives[i]);
+		if(lpdi = WinEnv_GetDriveInfo(lpRemoteDrives[i])) {
+			Settings.lpDrivesInfos[Settings.nDrives++] = lpdi;
+			wsprintf(outputBuff, L"%s (%s) - %s", lpdi->szDrive, lpdi->szFileSystem, lpdi->szRecycleBinPath);
+			appendLog(ID_LOG_APP, outputBuff);
+		}
+		else {
+			wsprintf(outputBuff, L"Unable to get info for drive %s", lpRemoteDrives[i]);
+			appendLog(ID_LOG_APP, outputBuff);
+		}
 	}
-	// retrieve path of related recycle bins
-	LPDRIVEINFO *lpDriveInfos = (LPDRIVEINFO *) LocalAlloc(LPTR, sizeof(LPDRIVEINFO)*nbDrives);
-	for(UINT i = 0; i < nbDrives; ++i) {
-		lpDriveInfos[i] = WinEnv_GetDriveInfo(Settings.lpDrives[i]);
-		appendLog(ID_LOG_APP, lpDriveInfos[i]->szRecycleBinPath);
-	}
-
-
 
 	FSChangeNotifier* lpNotifier = FSChangeNotifier::GetInstance();
 
 	// initialize change watcher
 	if (!lpNotifier->Init()) {
 		MessageBox(0, L"Initialization Error", NULL, MB_ICONERROR);
-		return 0;
-	}
-	// add drives to watch list
-	for(UINT i = 0; i < nbDrives; ++i) {
-		if (lpNotifier->AddPath(Settings.lpDrives[i]) != E_FILESYSMON_SUCCESS) {
-			wsprintf(outputBuff, L"Error adding drive  %s to monitoring list", Settings.lpDrives[i]);
-			appendLog(ID_LOG_APP, outputBuff);
-		}
+		return FALSE;
 	}
 
-	appendLog(ID_LOG_APP, L"Added exclusions:", true);
+	// add drives to watch list
+	appendLog(ID_LOG_APP, L"Drive(s) supported for monitoring:", true);
+	for(UINT i = 0; i < Settings.nDrives; ++i) {
+// todo : improve check to accept all theorically supported filesystems (NTFS, SMB 3+, CsvFS, ReFS)
+		if(wcsicmp(Settings.lpDrivesInfos[i]->szFileSystem, L"NTFS") == 0) {
+			if (lpNotifier->AddPath(Settings.lpDrivesInfos[i]->szDrive) == E_FILESYSMON_SUCCESS) {
+				wsprintf(outputBuff, L"%s", Settings.lpDrivesInfos[i]->szDrive);
+				appendLog(ID_LOG_APP, outputBuff);
+				continue;
+			}
+		}		
+		// wsprintf(outputBuff, L"Error adding drive %s to monitoring list", Settings.lpDrivesInfos[i]->szDrive);
+		// appendLog(ID_LOG_APP, outputBuff);
+	}
+
+	appendLog(ID_LOG_APP, L"Path(s) excluded from monitoring:", true);
 	// exclude windows\Temp 
 	lpNotifier->AddExclusion(WinEnv_GetFolderPath(CSIDL_TEMP));
 	// exclude <user profile>\Local Settings\Temp
@@ -236,14 +289,10 @@ BOOL StartMonitoring() {
 
 	appendLog(ID_LOG_APP, L"Starting monitoring...", true);
 	// start watching thread
-	lpNotifier->Start();
-
-	// free allocated memory
-	for(UINT i = 0; i < nbDrives; ++i) {
-		LocalFree(Settings.lpDrives[i]);
-		LocalFree(lpDriveInfos[i]);
+	if (!lpNotifier->Start()) {
+		MessageBox(0, L"Initialization Error", NULL, MB_ICONERROR);
+		return FALSE;
 	}
-	LocalFree(Settings.lpDrives);
 
 	return TRUE;
 }
@@ -259,7 +308,7 @@ BOOL initApp() {
 	}
 	else {
 		// Set taggerCommandLinePath according to HKLM/SOFTWARE/TaggerUI/Tagger_Dir.
-		Settings.taggerCommandLinePath = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(data)+wcslen(L"\\tagger.exe")+1) );
+		Settings.taggerCommandLinePath = (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR) * (wcslen(data) + wcslen(L"\\tagger.exe")+1) );
 		wsprintf(Settings.taggerCommandLinePath, L"%s\\tagger.exe", data);
 	}			  
 	
@@ -362,6 +411,22 @@ void fileMove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	appendLog(ID_LOG_FS, buff);
 	appendLog(ID_LOG_FS, L"");
 
+	if(GetFileAttributes(newFileName) & FILE_ATTRIBUTE_DIRECTORY) {
+		// search for sub items (files or directories)
+		wsprintf(buff, L"%s --quiet --files list \"%s\\*\"", Settings.taggerCommandLinePath, oldFileName);
+		output = DosExec(buff);
+		appendLog(ID_LOG_TAGGER, buff, true);
+		appendLog(ID_LOG_TAGGER, output);
+		for(LPWSTR line = wcstok(output, L"\n"); line; line = wcstok(NULL, L"\n")) {
+			// for each line, replace oldFileName by newFileName
+			line[wcslen(line)-1] = '\0';			
+			wsprintf(buff, L"%s --files rename \"%s\" \"%s\\%s\"", Settings.taggerCommandLinePath, line, newFileName, line+wcslen(oldFileName)+1);
+			output = DosExec(buff);
+			appendLog(ID_LOG_TAGGER, buff, true);
+			appendLog(ID_LOG_TAGGER, output);
+		}
+	}
+
 	// check file's presence in database (retrieve tags already applied on the given file)
 	wsprintf(buff, L"%s query \"%s\"", Settings.taggerCommandLinePath, oldFileName);		
 	output = DosExec(buff);
@@ -393,6 +458,24 @@ void fileRemove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	appendLog(ID_LOG_FS, buff);
 	appendLog(ID_LOG_FS, L"");
 
+/*
+// todo : as file is now deleted, we cannot ask windows file's attributes !!
+	if(GetFileAttributes(newFileName) & FILE_ATTRIBUTE_DIRECTORY) {
+		// search for sub items (files or directories)
+		wsprintf(buff, L"%s --quiet --files list \"%s\\*\"", Settings.taggerCommandLinePath, oldFileName);
+		output = DosExec(buff);
+		appendLog(ID_LOG_TAGGER, buff, true);
+		appendLog(ID_LOG_TAGGER, output);
+		for(LPWSTR line = wcstok(output, L"\n"); line; line = wcstok(NULL, L"\n")) {
+			// for each line, replace oldFileName by newFileName
+			line[wcslen(line)-1] = '\0';			
+			wsprintf(buff, L"%s --files rename \"%s\" \"%s\\%s\"", Settings.taggerCommandLinePath, line, newFileName, line+wcslen(oldFileName)+1);
+			output = DosExec(buff);
+			appendLog(ID_LOG_TAGGER, buff, true);
+			appendLog(ID_LOG_TAGGER, output);
+		}
+	}
+*/
 	// check file's presence in database (retrieve tags already applied on the given file)
 	wsprintf(buff, L"%s query \"%s\"", Settings.taggerCommandLinePath, oldFileName);		
 	output = DosExec(buff);
@@ -424,6 +507,8 @@ void fileRestore(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	appendLog(ID_LOG_FS, L"");
 
 	// check if given file is actually non-existent
+// todo : most files will be non-existent in the DB, and we shouldn't try to recover them
+// add a feature to tagger.exe to check inside trash only
 	wsprintf(buff, L"%s query \"%s\"", Settings.taggerCommandLinePath, oldFileName);
 	output = DosExec(buff);
 	appendLog(ID_LOG_TAGGER, buff, true);
@@ -438,6 +523,10 @@ void fileRestore(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 		appendLog(ID_LOG_TAGGER, output);
 	}
 	LocalFree(output);
+}
+
+void watcherStopped(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+	MessageBox(NULL, L"Watcher thread stopped unexpectedly\r\nPlease, try to restart the application.", L"Error", MB_OK);
 }
 
 void notifyIcon(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
@@ -458,10 +547,13 @@ void menuActivityLog(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 
 void menuSettings(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
+	// ShowWindow(hWndSettings, SW_SHOWNORMAL);
+	// BringWindowToTop(hWndSettings);
 }
 
 void menuAbout(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
-	ShowWindow(hWndAbout, SW_SHOW);
+	ShowWindow(hWndAbout, SW_SHOWNORMAL);
+	BringWindowToTop(hWndAbout);
 }
 
 
@@ -472,7 +564,14 @@ void closeDialog(HWND hWnd, WPARAM, LPARAM) {
 
 void closeApp(HWND hWnd, WPARAM, LPARAM) {
 	if(MessageBox(hWnd, L"Terminating this program means that filesystem changes will no longer be monitored.\r\n This might result in Tagger database inconsistency (if tagged files are moved, deleted or restored).\r\n\r\nAre you sure you want to end monitoring ?", L"TaggerUI", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES) {
+
+		// free allocated memory
 		if(Settings.taggerCommandLinePath) LocalFree(Settings.taggerCommandLinePath);
+				
+		for(UINT i = 0; i < Settings.nDrives; ++i) {
+			LocalFree(Settings.lpDrivesInfos[i]);
+		}
+		LocalFree(Settings.lpDrivesInfos);
 
 		NOTIFYICONDATA tnid;  
 		tnid.cbSize = sizeof(NOTIFYICONDATA); 
@@ -480,7 +579,11 @@ void closeApp(HWND hWnd, WPARAM, LPARAM) {
 		tnid.uID = 0;         
 		Shell_NotifyIcon(NIM_DELETE, &tnid); 
 
+		DestroyWindow(hWndActivity);
+		//DestroyWindow(hWndSettings);
+		DestroyWindow(hWndAbout);
 		DestroyWindow(hWnd);
+
 		PostQuitMessage(0);
 	}
 }

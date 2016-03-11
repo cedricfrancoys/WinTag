@@ -11,8 +11,9 @@
 
 
 typedef struct {
+	WCHAR szDrive[32];
 	WCHAR szVolumeName[64];
-	WCHAR szFileSystem[6];		// HPFS, CDFS, FAT, FAT32, NTFS, ReFS
+	WCHAR szFileSystem[6];		// HPFS, CDFS, FAT, FAT32, NTFS, CsvFS, ReFS
 	WCHAR szRecycleBinPath[64];
 	DWORD dwSerialNumber;
 	DWORD dwFileSystemFlags;

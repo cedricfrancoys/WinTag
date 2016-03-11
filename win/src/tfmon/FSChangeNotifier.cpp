@@ -12,10 +12,12 @@
 #include <stdlib.h>
 #include "FSChangeNotifier.h"
 
-DWORD WM_FSNOTIFY_ADDED = RegisterWindowMessage(L"FSChangeNotifierAdd");
-DWORD WM_FSNOTIFY_MOVED = RegisterWindowMessage(L"FSChangeNotifierMove");
-DWORD WM_FSNOTIFY_REMOVED = RegisterWindowMessage(L"FSChangeNotifierRemove");
-DWORD WM_FSNOTIFY_RESTORED = RegisterWindowMessage(L"FSChangeNotifierRestore");
+DWORD WM_FSNOTIFY_ADDED		= RegisterWindowMessage(L"FSChangeNotifierAdd");
+DWORD WM_FSNOTIFY_MOVED		= RegisterWindowMessage(L"FSChangeNotifierMove");
+DWORD WM_FSNOTIFY_REMOVED	= RegisterWindowMessage(L"FSChangeNotifierRemove");
+DWORD WM_FSNOTIFY_RESTORED	= RegisterWindowMessage(L"FSChangeNotifierRestore");
+
+DWORD WM_FSNOTIFY_STOP		= RegisterWindowMessage(L"FSChangeNotifierThreadStopped");
 
 FSChangeNotifier::FSChangeNotifier() {	
 	this->hIOCP = NULL;
@@ -118,14 +120,7 @@ INT FSChangeNotifier::AddPath(LPCWSTR pPath, BOOL bSubTree) {
 	if (!this->hIOCP) {
 			// must call Init() method first !
 			return E_FILESYSMON_ERRORNOTINIT;
-	}
-
-	// update drives list
-	BOOL bPresent = FALSE;
-	UINT i, uiCount;
-	for(i = 0, uiCount = strlen(this->drives); !bPresent && i < uiCount; ++i) {
-		if(this->drives[i] == pPath[0]) bPresent = TRUE;
-	} if(!bPresent) this->drives[i] = pPath[0];
+	}	
 
 
 	// Open handle to the directory to be monitored
@@ -139,7 +134,8 @@ INT FSChangeNotifier::AddPath(LPCWSTR pPath, BOOL bSubTree) {
 
 	// Allocate notification buffers (will be filled by the system when a notification occurs)
 	memset(&pDir->ol,  0, sizeof(pDir->ol));
-	if((pDir->pBuff = new FILE_NOTIFY_INFORMATION[MAX_BUFF_SIZE]) == NULL) {
+	pDir->pBuff = (FILE_NOTIFY_INFORMATION*) LocalAlloc(LPTR, sizeof(FILE_NOTIFY_INFORMATION)*MAX_BUFF_SIZE);
+	if(!pDir->pBuff) {
 		CloseHandle(pDir->hFile);
 		delete pDir;
 		return E_FILESYSMON_ERROROUTOFMEM;
@@ -164,6 +160,13 @@ INT FSChangeNotifier::AddPath(LPCWSTR pPath, BOOL bSubTree) {
 
 	// add direcory to watched directories queue	
 	this->vecDirs.push_back(pDir);
+
+	// update drives list
+	BOOL bPresent = FALSE;
+	UINT i, uiCount;
+	for(i = 0, uiCount = strlen(this->drives); !bPresent && i < uiCount; ++i) {
+		if(this->drives[i] == pPath[0]) bPresent = TRUE;
+	} if(!bPresent) this->drives[i] = (CHAR) pPath[0];
 
 	return E_FILESYSMON_SUCCESS;
 }
@@ -220,7 +223,7 @@ vector<FileActionInfo*>* FSChangeNotifier::FetchChanges() {
 		return NULL;
 	}
 
-	// identify which watched directory has been changed (ulKey should be a DirInfo handler)
+	// identify which watched directory has been changed (ulKey should be a File handle)
 	DirInfo* pDir;	
 	int nIndex, uiCount = this->vecDirs.size();
 	for (nIndex = 0; nIndex < uiCount; ++nIndex) {
@@ -241,24 +244,31 @@ vector<FileActionInfo*>* FSChangeNotifier::FetchChanges() {
 		WCHAR tempPath[FILE_NAME_MAX];
 		memset(tempPath, 0, sizeof(WCHAR)*FILE_NAME_MAX);
 		wcscpy(tempPath, pDir->dirPath);
-		memcpy(tempPath+wcslen(tempPath), pIter->FileName, pIter->FileNameLength);
+// todo : we should have a distinct FILE_PATH_MAX constant 
+// next line could lead to buffer overflow
+		memcpy(tempPath+wcslen(tempPath), pIter->FileName, min(FILE_NAME_MAX-1, pIter->FileNameLength));
+// todo : force conversion to longName
 
 		// queue new change
 		vecChanges.push_back(new FileActionInfo(tempPath, pIter->Action));
 
 		if(pIter->NextEntryOffset == 0UL) break;	
 
-//		if ((DWORD)((BYTE*)pIter - (BYTE*)pDir->pBuff) > (MAX_BUFF_SIZE * sizeof(FILE_NOTIFY_INFORMATION)))
-//			pIter = pDir->pBuff;
-
 		pIter = (PFILE_NOTIFY_INFORMATION) ((LPBYTE)pIter + pIter->NextEntryOffset);
+
+		if ((DWORD)((BYTE*)pIter - (BYTE*)pDir->pBuff) > (MAX_BUFF_SIZE * sizeof(FILE_NOTIFY_INFORMATION)))	{
+// todo : improve this
+			// buffer overflow : give up and abandon further changes notification for current batch
+			break;
+		}
+
+
 	 }
 
 	// re-register current directory for receiving further changes
 	DWORD dwBytesReturned = 0;
 	if (!ReadDirectoryChangesW(pDir->hFile, pDir->pBuff, MAX_BUFF_SIZE * sizeof(FILE_NOTIFY_INFORMATION), pDir->bSubTree, FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_FILE_NAME, &dwBytesReturned, &pDir->ol, NULL)) {
 		this->nLastError = E_FILESYSMON_ERRORREADDIR;
-		RemovePath(nIndex);
 		return NULL;
 	}
 
@@ -275,15 +285,19 @@ void FSChangeNotifier::Notify(DWORD action, LPWSTR oldFileName, LPWSTR newFileNa
 DWORD WINAPI FSChangeNotifier::DelayedRemoval(LPVOID lpvd) {
 	FileActionInfo* lpAction = (FileActionInfo*) lpvd;
 	FSChangeNotifier* fsChangeNotifier = FSChangeNotifier::GetInstance();
-		
-	Sleep(2000);	 
+	HANDLE hMutex = CreateMutex(NULL, FALSE, L"FSChangeThreads");
 
+	Sleep(2000);	 
+	// wait for mutex
+	
+	WaitForSingleObject(hMutex, INFINITE);
 	if(fsChangeNotifier->changesQueue.Search(lpAction)) {
 		// if 'removed' event is still in the queue, handle it as an actual removal
 		fsChangeNotifier->Notify(WM_FSNOTIFY_REMOVED, lpAction->GetFilePath(), NULL);
 		// remove event from the queue		
 		fsChangeNotifier->changesQueue.Remove(lpAction);
 	}
+	ReleaseMutex(hMutex);
 
 	return 0;
 }
@@ -306,10 +320,13 @@ DWORD WINAPI FSChangeNotifier::ThreadWatch(LPVOID lpvd) {
 	FSChangeNotifier* fsChangeNotifier = FSChangeNotifier::GetInstance();
 	vector<FileActionInfo*>* vecChanges;
 	FileActionInfo* lpAction;
+	HANDLE hMutex = CreateMutex(NULL, FALSE, L"FSChangeThreads");
 
 	// main loop
 	while ( (vecChanges = fsChangeNotifier->FetchChanges()) ) {
-		for (UINT i = 0, uiCount = vecChanges->size(); i < uiCount; ++i)	{
+		for (UINT i = 0, uiCount = vecChanges->size(); i < uiCount; ++i) {
+			WaitForSingleObject(hMutex, INFINITE);
+
 			FileActionInfo* lpNewAction = vecChanges->at(i);
 			FileActionInfo* lpLastAction = fsChangeNotifier->changesQueue.Last();
 
@@ -320,78 +337,78 @@ DWORD WINAPI FSChangeNotifier::ThreadWatch(LPVOID lpvd) {
 					exclusion = TRUE;
 					break;
 				}				
-			} if(exclusion) continue;
-
-			switch(lpNewAction->GetAction()) {
-			case FILE_ACTION_ADDED:					
-					if(lpLastAction && lpLastAction->GetAction() == FILE_ACTION_REMOVED && lpLastAction->GetDrive() == lpNewAction->GetDrive() ) {
-// todo : use previously retrieved recycle bin(s) exact path
-						if(wcsstr(lpNewAction->GetFilePath(), L"RECYCLE")) {
-							// deletion toward recycle bin: delayed removal will handle this
-						}
-						else if(wcsstr(lpLastAction->GetFilePath(), L"RECYCLE")) {
-							// file restored
-							fsChangeNotifier->Notify(WM_FSNOTIFY_RESTORED, lpNewAction->GetFilePath(), NULL);
-							// remove 'added' event from queue
-							fsChangeNotifier->changesQueue.Remove(lpLastAction);
-						}
-						else {
-							if(wcscmp(lpLastAction->GetFileName(), lpNewAction->GetFileName()) == 0 ) {
-								// file moved
-								fsChangeNotifier->Notify(WM_FSNOTIFY_MOVED, lpLastAction->GetFilePath(), lpNewAction->GetFilePath());
+			} if(!exclusion) {
+				switch(lpNewAction->GetAction()) {
+				case FILE_ACTION_ADDED:					
+						if(lpLastAction && lpLastAction->GetAction() == FILE_ACTION_REMOVED && lpLastAction->GetDrive() == lpNewAction->GetDrive() ) {
+	// todo : use previously retrieved recycle bin(s) exact path
+							if(wcsstr(lpNewAction->GetFilePath(), L"RECYCLE")) {
+								// deletion toward recycle bin: delayed removal will handle this
+							}
+							else if(wcsstr(lpLastAction->GetFilePath(), L"RECYCLE")) {
+								// file restored
+								fsChangeNotifier->Notify(WM_FSNOTIFY_RESTORED, lpNewAction->GetFilePath(), NULL);
 								// remove 'added' event from queue
 								fsChangeNotifier->changesQueue.Remove(lpLastAction);
 							}
 							else {
-								// file added
-								fsChangeNotifier->Notify(WM_FSNOTIFY_ADDED, NULL, lpNewAction->GetFilePath());
-								// push 'added' event to queue
-								fsChangeNotifier->changesQueue.Add(lpNewAction);
-							}							
+								if(wcscmp(lpLastAction->GetFileName(), lpNewAction->GetFileName()) == 0 ) {
+									// file moved
+									fsChangeNotifier->Notify(WM_FSNOTIFY_MOVED, lpLastAction->GetFilePath(), lpNewAction->GetFilePath());
+									// remove 'added' event from queue
+									fsChangeNotifier->changesQueue.Remove(lpLastAction);
+								}
+								else {
+									// file added
+									fsChangeNotifier->Notify(WM_FSNOTIFY_ADDED, NULL, lpNewAction->GetFilePath());
+									// push 'added' event to queue
+									fsChangeNotifier->changesQueue.Add(lpNewAction);
+								}							
+							}
 						}
+						else {
+							// file added
+							fsChangeNotifier->Notify(WM_FSNOTIFY_ADDED, NULL, lpNewAction->GetFilePath());
+							// push 'added' event to queue
+							fsChangeNotifier->changesQueue.Add(lpNewAction);
+						}
+					break;
+				case FILE_ACTION_REMOVED:
+					CHAR otherDrives[27];
+					for(UINT j = 0, k = 0, uiSize = strlen(fsChangeNotifier->drives); j < uiSize; ++j) {
+						if(fsChangeNotifier->drives[j] != lpNewAction->GetDrive()) {
+							otherDrives[k] = fsChangeNotifier->drives[j];
+							otherDrives[++k] = 0;
+						}					
+					}
+					// search the queue for an 'added' event for the same filename on a different volume				
+					if(lpAction = fsChangeNotifier->changesQueue.Search(lpNewAction->GetFileName(), FILE_ACTION_ADDED, otherDrives)) {
+						// file moved
+						fsChangeNotifier->Notify(WM_FSNOTIFY_MOVED, lpNewAction->GetFilePath(), lpAction->GetFilePath());
+						// remove 'removed' event from queue
+						fsChangeNotifier->changesQueue.Remove(lpAction);
 					}
 					else {
-						// file added
-						fsChangeNotifier->Notify(WM_FSNOTIFY_ADDED, NULL, lpNewAction->GetFilePath());
-						// push 'added' event to queue
-						fsChangeNotifier->changesQueue.Add(lpNewAction);
+						fsChangeNotifier->changesQueue.Add(lpNewAction);					
+						CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) DelayedRemoval, (LPVOID) lpNewAction, 0, NULL);
 					}
-				break;
-			case FILE_ACTION_REMOVED:
-				CHAR otherDrives[27];
-				for(UINT j = 0, k = 0, uiSize = strlen(fsChangeNotifier->drives); j < uiSize; ++j) {
-					if(fsChangeNotifier->drives[j] != lpNewAction->GetDrive()) {
-						otherDrives[k] = fsChangeNotifier->drives[j];
-						otherDrives[++k] = 0;
-					}					
+					break;
+				case FILE_ACTION_RENAMED_OLD_NAME:
+					// push 'renamed' event to queue
+					fsChangeNotifier->changesQueue.Add(lpNewAction);
+					break;
+				case FILE_ACTION_RENAMED_NEW_NAME:
+					if(lpLastAction && lpLastAction->GetAction() == FILE_ACTION_RENAMED_OLD_NAME) {					
+						fsChangeNotifier->Notify(WM_FSNOTIFY_MOVED, lpLastAction->GetFilePath(), lpNewAction->GetFilePath());
+						fsChangeNotifier->changesQueue.Remove(lpLastAction);
+					}				
+					break;
+				default:
+					delete lpNewAction;
+					break;
 				}
-				// search the queue for an 'added' event for the same filename on a different volume				
-				if(lpAction = fsChangeNotifier->changesQueue.Search(lpNewAction->GetFilePath(), FILE_ACTION_ADDED, otherDrives)) {
-					// file moved
-					fsChangeNotifier->Notify(WM_FSNOTIFY_MOVED, lpNewAction->GetFilePath(), lpAction->GetFilePath());
-					// remove 'removed' event from queue
-					fsChangeNotifier->changesQueue.Remove(lpAction);
-				}
-				else {
-					fsChangeNotifier->changesQueue.Add(lpNewAction);					
-					CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) DelayedRemoval, (LPVOID) lpNewAction, 0, NULL);
-				}
-				break;
-			case FILE_ACTION_RENAMED_OLD_NAME:
-				// push 'renamed' event to queue
-				fsChangeNotifier->changesQueue.Add(lpNewAction);
-				break;
-			case FILE_ACTION_RENAMED_NEW_NAME:
-				if(lpLastAction && lpLastAction->GetAction() == FILE_ACTION_RENAMED_OLD_NAME) {					
-					fsChangeNotifier->Notify(WM_FSNOTIFY_MOVED, lpLastAction->GetFilePath(), lpNewAction->GetFilePath());
-					fsChangeNotifier->changesQueue.Remove(lpLastAction);
-				}				
-				break;
-			default:
-				delete lpNewAction;
-				break;
 			}
-
+			ReleaseMutex(hMutex);
 		}
 	}
 

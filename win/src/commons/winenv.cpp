@@ -211,7 +211,7 @@ nType must be a DRIVE_* type as defined in winbase.h :
  DRIVE_REMOVABLE, DRIVE_FIXED, DRIVE_REMOTE, DRIVE_CDROM, DRIVE_RAMDISK
 */
 LPWSTR* WinEnv_GetDrives(UINT nType) {
-	LPWSTR* result = (LPWSTR*) LocalAlloc(LPTR, sizeof(LPWSTR)*26);
+	LPWSTR* result = (LPWSTR*) LocalAlloc(LPTR, sizeof(LPWSTR)*27);
 	DWORD dwLogicalDrives = GetLogicalDrives();
 	UINT nPos = 0;
 	for(CHAR cDrive = 'A'; cDrive <= 'Z'; ++cDrive) {
@@ -231,9 +231,12 @@ LPWSTR* WinEnv_GetDrives(UINT nType) {
 	result[nPos] = NULL;
 	return result;
 }
-
+/*
+A letter followed by ':\' is expected as szDrive.
+*/
 LPDRIVEINFO WinEnv_GetDriveInfo(LPWSTR szDrive) {
 	LPDRIVEINFO lpdi = (LPDRIVEINFO) LocalAlloc(LPTR, sizeof(DRIVEINFO));
+	memset(lpdi, 0, sizeof(DRIVEINFO));
 	if(!GetVolumeInformation(szDrive,
                             lpdi->szVolumeName,
                             sizeof(lpdi->szVolumeName),
@@ -248,6 +251,7 @@ LPDRIVEINFO WinEnv_GetDriveInfo(LPWSTR szDrive) {
 	else {
 		LPWINDOWSINFO lpWinInf = WinEnv_GetWindowsInfo();
 		FLOAT winVersion;
+		wcscpy(lpdi->szDrive, szDrive);
 		if(swscanf(lpWinInf->szVersion, L"%f", &winVersion)) {
 			if(winVersion < 6.0) {
 				if(wcscmp(lpdi->szFileSystem, L"NTFS") == 0) {

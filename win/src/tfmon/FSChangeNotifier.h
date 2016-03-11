@@ -20,14 +20,14 @@ using std::vector;
 	#define FILE_NAME_MAX 1024
 #endif
 
-#define MAX_BUFF_SIZE  100
+#define MAX_BUFF_SIZE  256
 
 // messages defined in FSChangeNotifier.cpp
 extern DWORD WM_FSNOTIFY_ADDED;
 extern DWORD WM_FSNOTIFY_MOVED;
 extern DWORD WM_FSNOTIFY_REMOVED;
 extern DWORD WM_FSNOTIFY_RESTORED;
-
+extern DWORD WM_FSNOTIFY_STOP;
 
 class DirInfo {
 public:
@@ -38,7 +38,7 @@ public:
 	FILE_NOTIFY_INFORMATION*	pBuff;
 
 	DirInfo(LPCWSTR dirPath, BOOL bSubTree = FALSE) {
-		this->dirPath	= (LPWSTR) GlobalAlloc(GPTR, sizeof(WCHAR)*(wcslen(dirPath)+2));
+		this->dirPath	= (LPWSTR) LocalAlloc(LPTR, sizeof(WCHAR)*(wcslen(dirPath)+2));
 		wcscpy(this->dirPath, dirPath);
 		// add separator at the end of the path, if not present
 		if(dirPath[wcslen(dirPath)-1] != '\\') wcscat(this->dirPath, L"\\");
@@ -47,8 +47,8 @@ public:
 	}
 
 	~DirInfo() {
-		if (this->pBuff) delete[] this->pBuff;
-		GlobalFree(this->dirPath);
+		if (this->pBuff) LocalFree(this->pBuff);
+		LocalFree(this->dirPath);
 	}
 };
 
