@@ -36,7 +36,7 @@ HINSTANCE hInst;
 HWND hPaneTags, hPaneFiles, hPaneLogs;
 WCHAR* taggerCommandLinePath = NULL;
 
-HANDLE hSharedMemory;
+HANDLE hSharedMemory, hMutex;
 LPVOID lpMapAddress = NULL;
 
 
@@ -74,7 +74,7 @@ void removeTags(HWND, WPARAM, LPARAM);
 void addTags(HWND, WPARAM, LPARAM);
 void updateTagName(HWND, WPARAM, LPARAM);
 void updateFilesList(HWND, WPARAM, LPARAM);
-void notifyIcon(HWND, WPARAM, LPARAM);
+
 
 void addLog(LPWSTR str, BOOL isCommand=false);
 
@@ -87,77 +87,60 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	// register a custom message for files list update
 	DWORD WM_FLUPDATE = RegisterWindowMessage(L"TaggerFilesListUpdate");
 
-	// try to open named shared memory
-	if ( (hSharedMemory = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, FILE_NAME_MAX, L"TaggerUIMappedMem")) == NULL) { 
-		MessageBox(NULL, L"Could not create file-mapping object.", L"error", MB_OK | MB_ICONERROR); 
+
+	// open named mutex
+	if( (hMutex = CreateMutex(NULL, FALSE, L"mutexttftag.exe")) == NULL) {
+		MessageBox(NULL, L"Could not initialize app: unable to create named mutex.", L"error", MB_OK | MB_ICONERROR); 
+		return 0;
 	}
-	else {
-		lpMapAddress = MapViewOfFile(hSharedMemory, FILE_MAP_ALL_ACCESS, 0, 0, 0); 
-		if(GetLastError() == ERROR_ALREADY_EXISTS) {
-			// main window already exists : send it current filename, if any
-			// retrieve command line arguments
-			int argc;
-			LPWSTR *argv = CommandLineToArgvW(GetCommandLine(), &argc);
-			if (argc >= 2) { 
-				// copy current argv value to shared memory
-				wsprintf((LPWSTR) lpMapAddress, argv[1]);
-				// send broadcast message to notify change
-				SendMessage(HWND_BROADCAST, WM_FLUPDATE, 0, 0);
-			}
-			UnmapViewOfFile(lpMapAddress);			
-			CloseHandle(hSharedMemory);		
-			return 0;
+	BOOL isSecondary = (BOOL) (GetLastError() == ERROR_ALREADY_EXISTS);
+
+	// request ownership on the mutex (for exclusive access on shared memory)
+	WaitForSingleObject(hMutex, INFINITE);
+
+	// open named shared memory
+	if ( (hSharedMemory = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, FILE_NAME_MAX, L"mappedmemtftag.exe")) == NULL) { 
+		MessageBox(NULL, L"Could not initialize app: couldn't open shared memory.", L"error", MB_OK | MB_ICONERROR);
+		return 0;
+	}
+	// map shared memory
+	if( (lpMapAddress = MapViewOfFile(hSharedMemory, FILE_MAP_ALL_ACCESS, 0, 0, 0)) == NULL){
+		MessageBox(NULL, L"Could not initialize app: couldn't map shared memory.", L"error", MB_OK | MB_ICONERROR);
+		return 0;
+	}
+
+	if(isSecondary) {
+		// send current filename to main window
+		// retrieve command line arguments
+		int argc;
+		LPWSTR *argv = CommandLineToArgvW(GetCommandLine(), &argc);
+		if (argc >= 2) { 
+			// copy current argv value to shared memory
+			wsprintf((LPWSTR) lpMapAddress, argv[1]);
+			// send broadcast message to notify change
+			SendMessage(HWND_BROADCAST, WM_FLUPDATE, 0, 0);
 		}
+		UnmapViewOfFile(lpMapAddress);			
+		CloseHandle(hSharedMemory);
+		ReleaseMutex(hMutex);
+		return 0;
 	}
-
-
+	
 	INITCOMMONCONTROLSEX InitCtrlEx;
 	InitCtrlEx.dwSize = sizeof(INITCOMMONCONTROLSEX);
 	InitCtrlEx.dwICC  = ICC_BAR_CLASSES | ICC_TAB_CLASSES;
 	InitCommonControlsEx(&InitCtrlEx);
 
-	WNDCLASSEX wcex;
-	wcex.cbSize			= sizeof(WNDCLASSEX);
-	wcex.style			= CS_CLASSDC;
-	wcex.lpfnWndProc	= EventListener::wndProc;
-	wcex.cbClsExtra		= 0;
-	wcex.cbWndExtra		= 0;
-	wcex.hInstance		= hInstance;
-	wcex.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDD_ICON));
-	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
-	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
-	wcex.lpszMenuName	= 0;
-	wcex.lpszClassName	= L"myClass";
-	wcex.hIconSm		= LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDD_ICON));
-	RegisterClassEx(&wcex);
-
-	HWND phWnd = CreateWindowEx(WS_EX_TOOLWINDOW, L"myClass", L"", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
-
-
-
-
-	HWND hSplash = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_SPLASH), phWnd, (DLGPROC) NULL, 0);
+	HWND hSplash = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_SPLASH), 0, (DLGPROC) NULL, 0);
     ShowWindow(hSplash, SW_SHOW);
     UpdateWindow(hSplash);
 
 	HWND hWnd;
-    if (!(hWnd = CreateDialogParamW(hInstance, MAKEINTRESOURCE(IDD_DIALOG), phWnd, (DLGPROC) EventListener::dlgProc, 0))) {
+    if (!(hWnd = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_DIALOG), 0, (DLGPROC) EventListener::dlgProc, 0))) {
         MessageBox(NULL, L"App creation failed!", L"Tagger", MB_OK | MB_ICONERROR);
         return 1;
     }
 
-	// create status bar notify icon 
-	DWORD WM_NOTIFYICON = RegisterWindowMessage(L"TaggerNotifyIcon");
-	HICON hIcon = (HICON) LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_ICON));
-    NOTIFYICONDATA tnid;  
-    tnid.cbSize = sizeof(NOTIFYICONDATA); 
-    tnid.hWnd = hWnd; 
-    tnid.uID = 0; 
-    tnid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP; 
-    tnid.uCallbackMessage = WM_NOTIFYICON; 
-    tnid.hIcon = hIcon; 
-    wcscpy(tnid.szTip, L"TaggerUI monitor");
-    Shell_NotifyIcon(NIM_ADD, &tnid); 
 
 	// create tabControl panes 
 	HWND hTabControl = GetDlgItem(hWnd, IDC_TAB);
@@ -174,7 +157,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	// global events
 	eventListener->bind(hWnd, 0, WM_CLOSE, closeDialog);
 	eventListener->bind(hWnd, 0, WM_FLUPDATE, updateFilesList);
-	eventListener->bind(hWnd, 0, WM_NOTIFYICON, notifyIcon);
 	
 	// handle dialog default IDOK action to terminate app
 	eventListener->bind(hWnd, IDOK, BN_CLICKED, closeDialog);	
@@ -185,10 +167,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	eventListener->bind(hPaneTags, ID_ADD, BN_CLICKED, addTags);
 	eventListener->bind(hPaneTags, ID_TAGNAME, EN_CHANGE, updateTagName);
 
-	ShowWindow(phWnd, SW_HIDE);
 	ShowWindow(hSplash, SW_HIDE);
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
+
+	// from now on, allow other instances to access shared memory and send WM_FLUPDATE messages
+	ReleaseMutex(hMutex);
 
     // Main message loop:
 	MSG msg;
@@ -232,6 +216,8 @@ void initDialog(HWND hWnd, WPARAM, LPARAM) {
 	HFONT hFont = CreateFontIndirect(&logfont); 
 	SendMessage(GetDlgItem( hPaneLogs, ID_LOG ), WM_SETFONT, (WPARAM)hFont, TRUE);
 
+	SendMessage(GetDlgItem( hPaneFiles, ID_LIST_FILES ), LB_SETHORIZONTALEXTENT, (WPARAM) 1024, 0);
+				
 	// retrieve command line arguments
     int argc;
 	LPWSTR *argv = CommandLineToArgvW(GetCommandLine(), &argc);
@@ -510,24 +496,11 @@ void updateFilesList(HWND hWnd, WPARAM, LPARAM) {
 }
 
 
-void notifyIcon(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
-	if ((UINT) lParam == WM_RBUTTONDOWN) {
-		HMENU hMenu = GetSubMenu( LoadMenu(GetModuleHandle(NULL), MAKEINTRESOURCE(ID_POPUP_MENU)), 0);
-		POINT mPos;
-		GetCursorPos(&mPos);
-		TrackPopupMenu(hMenu, TPM_TOPALIGN | TPM_LEFTALIGN, mPos.x, mPos.y, 0, hWnd, NULL); 
-	}
-}
+
 void closeDialog(HWND hWnd, WPARAM, LPARAM) {
 	if(taggerCommandLinePath != NULL) LocalFree(taggerCommandLinePath);
 	if(lpMapAddress != NULL) UnmapViewOfFile(lpMapAddress);
 	if(hSharedMemory != NULL) CloseHandle(hSharedMemory);
-
-    NOTIFYICONDATA tnid;  
-    tnid.cbSize = sizeof(NOTIFYICONDATA); 
-    tnid.hWnd = hWnd; 
-    tnid.uID = 0;         
-    Shell_NotifyIcon(NIM_DELETE, &tnid); 
 
 	DestroyWindow(hWnd);
 	PostQuitMessage(0);
