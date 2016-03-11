@@ -105,11 +105,14 @@ SectionEnd
 
 ; Optional section (can be disabled by the user)
 Section "Start Menu Shortcuts" sectionStartMenu
-
   CreateDirectory "$SMPROGRAMS\TaggerUI"
-  CreateShortCut "$SMPROGRAMS\TaggerUI\Uninstall.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
-  CreateShortCut "$SMPROGRAMS\TaggerUI\File Search.lnk" "$INSTDIR\tfsearch.exe" "" "$INSTDIR\tfsearch.exe" 0
 
+  CreateShortCut "$SMPROGRAMS\TaggerUI\File Search.lnk" "$INSTDIR\tfsearch.exe" "" "$INSTDIR\tfsearch.exe" 0
+  ${If} ${SectionIsSelected} ${sectionFSMonitor}
+    CreateShortCut "$SMPROGRAMS\TaggerUI\FileSystem monitor.lnk" "$INSTDIR\tfmon.exe" "" "$INSTDIR\tfmon.exe" 0  
+  ${EndIf}
+  
+  CreateShortCut "$SMPROGRAMS\TaggerUI\Uninstall.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0  
 SectionEnd
 
 ;--------------------------------
