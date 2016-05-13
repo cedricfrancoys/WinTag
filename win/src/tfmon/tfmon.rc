@@ -25,9 +25,10 @@ BEGIN
 
 	ICON IDD_ICON, -1, 10, 18, 18, 15
 	CTEXT "Tagger UI monitor", -1,  36, 23, 210, 17
-	CTEXT "Daemon for monitoring filesystem changes.", -1,  36, 35, 210, 17
-	CTEXT "Tagger UI suite - (C) Copyright 2016 Cedric Francoys, 2016, Yegen", -1, 36, 47, 210, 17
-	CTEXT "Some Right Reserved, GNU GPL 3 license", -1,  36, 59, 210, 17	
+	CTEXT IDT_VERSION, -1,  36, 35, 210, 17
+	CTEXT "Daemon for monitoring filesystem changes.", -1,  36, 47, 210, 17
+	CTEXT "Tagger UI suite - (C) Copyright 2016 Cedric Francoys, 2016, Yegen", -1, 36, 59, 210, 17
+	CTEXT "Some Right Reserved, GNU GPL 3 license", -1,  36, 71, 210, 17		
 END
 
 
@@ -73,6 +74,8 @@ POPUP "CONTEXTMENU"
 	MENUITEM "&Activity log",	IDD_DIALOG_ACTIVITY
 	MENUITEM "&Settings",		IDD_DIALOG_SETTINGS
 	MENUITEM "A&bout",			IDD_DIALOG_ABOUT
+	MENUITEM SEPARATOR
+	MENUITEM "Restart",			IDM_RESTART
 	MENUITEM SEPARATOR
 	MENUITEM "Quit",			IDM_QUIT
 	END

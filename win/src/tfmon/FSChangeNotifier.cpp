@@ -101,7 +101,13 @@ BOOL FSChangeNotifier::Init() {
 }
 
 void FSChangeNotifier::bind(HWND hWnd) {
-	vechWndDest.push_back(hWnd);
+	// prevent double insertion
+	bool found = false;
+	for (int i = 0, uiCount = this->vechWndDest.size(); !found && i < uiCount; ++i) {
+		if(this->vechWndDest[i] == hWnd) found = true;
+	}if(!found) {
+		vechWndDest.push_back(hWnd);
+	}
 }
 
 BOOL FSChangeNotifier::Start() {
@@ -411,6 +417,6 @@ DWORD WINAPI FSChangeNotifier::ThreadWatch(LPVOID lpvd) {
 			ReleaseMutex(hMutex);
 		}
 	}
-
+	fsChangeNotifier->Notify(WM_FSNOTIFY_STOP, NULL, NULL);
 	return 0;
 }

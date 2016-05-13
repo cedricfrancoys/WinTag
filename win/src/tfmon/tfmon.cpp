@@ -84,6 +84,7 @@ void closeDialog(HWND, WPARAM, LPARAM);
 void menuActivityLog(HWND,WPARAM,LPARAM);
 void menuSettings(HWND,WPARAM,LPARAM);
 void menuAbout(HWND,WPARAM,LPARAM);
+void menuRestart(HWND,WPARAM,LPARAM);
 
 
 
@@ -129,11 +130,11 @@ int WINAPI WinMain(HINSTANCE hInstance,	HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	wndEventListener->bind(hWnd, 0, WM_FSNOTIFY_RESTORED, fileRestore);
 	wndEventListener->bind(hWnd, 0, WM_FSNOTIFY_STOP, watcherStopped);
 	
-	
 	// menu events
 	wndEventListener->bind(hWnd, IDD_DIALOG_ACTIVITY, 0, menuActivityLog);
 	wndEventListener->bind(hWnd, IDD_DIALOG_SETTINGS, 0, menuSettings);
 	wndEventListener->bind(hWnd, IDD_DIALOG_ABOUT, 0, menuAbout);
+	wndEventListener->bind(hWnd, IDM_RESTART, 0, menuRestart);
 	wndEventListener->bind(hWnd, IDM_QUIT, 0, closeApp);
 
 	// bind dialogs-related events
@@ -458,10 +459,11 @@ void fileRemove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	appendLog(ID_LOG_FS, buff);
 	appendLog(ID_LOG_FS, L"");
 
+	// note : as file is now deleted, we cannot ask windows file's attributes !!
+
+
+// todo : try to remove all files starting with given path
 /*
-// todo : as file is now deleted, we cannot ask windows file's attributes !!
-	if(GetFileAttributes(newFileName) & FILE_ATTRIBUTE_DIRECTORY) {
-		// search for sub items (files or directories)
 		wsprintf(buff, L"%s --quiet --files list \"%s\\*\"", Settings.taggerCommandLinePath, oldFileName);
 		output = DosExec(buff);
 		appendLog(ID_LOG_TAGGER, buff, true);
@@ -474,7 +476,6 @@ void fileRemove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 			appendLog(ID_LOG_TAGGER, buff, true);
 			appendLog(ID_LOG_TAGGER, output);
 		}
-	}
 */
 	// check file's presence in database (retrieve tags already applied on the given file)
 	wsprintf(buff, L"%s query \"%s\"", Settings.taggerCommandLinePath, oldFileName);		
@@ -556,6 +557,20 @@ void menuAbout(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 	BringWindowToTop(hWndAbout);
 }
 
+void menuRestart(HWND hWnd, WPARAM wParam, LPARAM lParam) {	
+
+	FSChangeNotifier* lpNotifier = FSChangeNotifier::GetInstance();
+	// stop watching thread
+	lpNotifier->Stop();
+
+	// empty all logs
+	DlgCtrl_SendMessage(hWndActivity, ID_LOG_APP, LB_RESETCONTENT, 0, 0 );
+	DlgCtrl_SendMessage(hWndActivity, ID_LOG_FS, LB_RESETCONTENT, 0, 0 );	
+	DlgCtrl_SendMessage(hWndActivity, ID_LOG_TAGGER, WM_SETTEXT, 0, (LPARAM) (LPWSTR) L"");		
+
+	// restart monitoring
+	StartMonitoring();
+}
 
 void closeDialog(HWND hWnd, WPARAM, LPARAM) {
 	ShowWindow(hWnd, SW_HIDE);
